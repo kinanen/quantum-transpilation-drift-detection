@@ -1,0 +1,44 @@
+name: Quantum compilation CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    env:
+      # Point at a remote MLflow server by setting the MLFLOW_TRACKING_URI
+      # repository secret (plus MLFLOW_TRACKING_USERNAME/PASSWORD if needed).
+      # When unset, runs are logged to a local ./mlruns file store that is
+      # uploaded as a workflow artifact below.
+      MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI || 'file:./mlruns' }}
+      MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+      MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+      MLFLOW_EXPERIMENT_NAME: qiskit-compilation
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install .
+
+      - name: Compile circuits against all backends
+        run: |
+          for circuit in circuits/*.py; do
+            qset-compile "$circuit"
+          done
+
+      - name: Upload MLflow runs
+        if: ${{ !startsWith(env.MLFLOW_TRACKING_URI, 'http') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlruns
+          path: mlruns/
