@@ -137,7 +137,27 @@ def write_github_summary(circuit_name: str, results: list[dict]) -> None:
         f.write("\n".join(lines) + "\n\n")
 
 
+def load_dotenv(path: Path = Path(".env")) -> None:
+    """Load KEY=VALUE pairs from a .env file into os.environ.
+
+    Used locally to point runs at the hosted MLflow server without exporting
+    secrets by hand. Existing environment variables are never overwritten, so
+    in CI the GitHub-provided secrets always take precedence over any .env.
+    """
+    if not path.exists():
+        return
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("circuit_file", type=Path, help="Path to a .py or .qasm circuit file")
     parser.add_argument(

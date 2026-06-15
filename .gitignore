@@ -6,3 +6,6 @@ mlartifacts/
 mlflow.db
 build/
 dist/
+
+# Local MLflow credentials (copy from .env.example); never commit real secrets
+.env

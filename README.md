@@ -51,6 +51,27 @@ export MLFLOW_TRACKING_URI=http://127.0.0.1:5001
 qset-compile circuits/bell.py
 ```
 
+## Send local runs to the hosted MLflow server
+
+To make locally-run compiles land in the same hosted server that CI uses,
+copy the template and fill in the real connection settings:
+
+```bash
+cp .env.example .env
+# edit .env — set MLFLOW_TRACKING_URI (and username/password if required)
+```
+
+`qset-compile` auto-loads `.env` on startup, so runs go straight to the
+hosted server:
+
+```bash
+qset-compile circuits/ghz.py
+```
+
+`.env` is gitignored — never commit real credentials. Any variable already
+set in your shell or in CI takes precedence over `.env`, so this never
+interferes with the GitHub-secret values used in Actions.
+
 ## Use a remote MLflow server in CI
 
 Set these repository secrets and the workflow logs there instead of the
