@@ -2,7 +2,7 @@
 
 from qiskit import QuantumCircuit
 
-N_QUBITS = 5
+N_QUBITS =10
 
 
 def build_circuit() -> QuantumCircuit:

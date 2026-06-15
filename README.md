@@ -8,9 +8,15 @@ compilation data in [MLflow](https://mlflow.org).
 
 1. Each file in `circuits/` defines a circuit (a `.py` file with a
    `build_circuit()` function, or an OpenQASM 2 `.qasm` file).
-2. `qset-compile` transpiles the circuit against a set of fake IBM backends
-   (`FakeManilaV2`, `FakeBrisbane`, `FakeTorino` by default — no IBM Quantum
-   credentials needed) at optimization levels 0–3.
+2. `qset-compile` transpiles the circuit against backends built from real
+   device calibration data in `hardware_specs/` (Braket-style JSON):
+   - **Cepheus** — 107-qubit superconducting device (CZ-based)
+   - **Garnet** — 20-qubit IQM superconducting device (CZ, square lattice)
+   - **Forte** — 36-qubit IonQ trapped-ion device (all-to-all connectivity)
+
+   The calibration data (T1/T2, gate and readout errors) is loaded into each
+   backend's transpiler target, so noise-aware layout picks the
+   best-calibrated qubits. Levels 0–3 are swept by default.
 3. Every (backend, optimization level) pair becomes one MLflow run with:
    - **params**: backend, basis gates, optimization level, Qiskit version, …
    - **metrics**: circuit depth, total ops, two-qubit gate count, per-gate
@@ -27,10 +33,22 @@ python -m venv .venv && source .venv/bin/activate
 pip install .
 
 qset-compile circuits/bell.py
-qset-compile circuits/ghz.py --backends FakeTorino --opt-levels 1 3
+qset-compile circuits/ghz.py --backends Garnet Forte --opt-levels 1 3
 
 # Browse the results
 mlflow ui
+```
+
+## Local MLflow server
+
+`scripts/mlflow-server.sh` starts a tracking server at
+<http://127.0.0.1:5001> (port 5001 because macOS AirPlay occupies 5000),
+backed by `mlflow.db` with artifacts under `mlartifacts/`. Point runs at it
+with:
+
+```bash
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5001
+qset-compile circuits/bell.py
 ```
 
 ## Use a remote MLflow server in CI

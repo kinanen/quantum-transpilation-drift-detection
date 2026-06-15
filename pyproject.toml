@@ -9,7 +9,6 @@ description = "Demo: compile Qiskit circuits against multiple backends in CI and
 requires-python = ">=3.10"
 dependencies = [
     "qiskit>=1.2",
-    "qiskit-ibm-runtime>=0.30",
     "mlflow>=2.16",
 ]
 

@@ -25,9 +25,9 @@ import mlflow
 import qiskit
 from qiskit import QuantumCircuit, qasm2, qasm3
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-from qiskit_ibm_runtime import fake_provider
 
-DEFAULT_BACKENDS = ["FakeManilaV2", "FakeBrisbane", "FakeTorino"]
+from qset_demo.backends import available_backends, get_backend
+
 DEFAULT_OPT_LEVELS = [0, 1, 2, 3]
 
 
@@ -51,15 +51,6 @@ def load_circuit(path: Path) -> QuantumCircuit:
             raise TypeError(f"{path} produced {type(circuit)}, expected QuantumCircuit")
         return circuit
     raise ValueError(f"Unsupported file type: {path} (expected .py or .qasm)")
-
-
-def get_backend(name: str):
-    try:
-        backend_cls = getattr(fake_provider, name)
-    except AttributeError:
-        available = sorted(n for n in dir(fake_provider) if n.startswith("Fake"))
-        raise SystemExit(f"Unknown backend {name!r}. Available: {', '.join(available)}")
-    return backend_cls()
 
 
 def two_qubit_gate_count(circuit: QuantumCircuit) -> int:
@@ -152,8 +143,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--backends",
         nargs="+",
-        default=DEFAULT_BACKENDS,
-        help=f"Fake backend class names from qiskit_ibm_runtime (default: {DEFAULT_BACKENDS})",
+        default=available_backends(),
+        help=f"Backends from hardware_specs/ (default: {available_backends()})",
     )
     parser.add_argument(
         "--opt-levels",

@@ -1,0 +1,52 @@
+{
+  "braketSchemaHeader": {
+    "name": "braket.device_schema.standardized_gate_model_qpu_device_properties",
+    "version": "3"
+  },
+  "T1": {
+    "value": 100,
+    "unit": "s"
+  },
+  "T2": {
+    "value": 1,
+    "unit": "s"
+  },
+  "readoutFidelity": [
+    {
+      "fidelityType": {
+        "name": "RANDOMIZED_BENCHMARKING",
+        "description": "Average readout fidelity is estimated with one-qubit randomized benchmarking."
+      },
+      "fidelity": 0.9961,
+      "unit": "fraction"
+    }
+  ],
+  "readoutDuration": {
+    "value": 0.00015,
+    "unit": "s"
+  },
+  "singleQubitGateDuration": {
+    "value": 0.00013,
+    "unit": "s"
+  },
+  "twoQubitGateFidelity": [
+    {
+      "fidelityType": {
+        "name": "RANDOMIZED_BENCHMARKING",
+        "description": "Average gate fidelities for a maximally entangling two-qubit native gate. It is regularly measured by IonQ on the device using Direct Randomized Benchmarking"
+      },
+      "fidelity": 0.9867,
+      "standardError": 0,
+      "unit": "fraction"
+    }
+  ],
+  "twoQubitGateDuration": {
+    "value": 0.00097,
+    "unit": "s"
+  },
+  "activeResetDuration": {
+    "value": 0.00005,
+    "unit": "s"
+  },
+  "updatedAt": "2026-05-08T00:00:00+00:00"
+}
