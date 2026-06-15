@@ -23,8 +23,9 @@ compilation data in [MLflow](https://mlflow.org).
      counts, transpile time
    - **artifacts**: the transpiled circuit as OpenQASM 3
 4. The CI workflow (`.github/workflows/compile.yml`) runs this on every push
-   and PR, prints a results table to the job summary, and uploads the MLflow
-   file store as a workflow artifact.
+   and PR (and can be triggered manually). It prints a results table to the
+   job summary and logs every run to the hosted MLflow server configured via
+   repository secrets.
 
 ## Run locally
 
@@ -34,22 +35,10 @@ pip install .
 
 qset-compile circuits/bell.py
 qset-compile circuits/ghz.py --backends Garnet Forte --opt-levels 1 3
-
-# Browse the results
-mlflow ui
 ```
 
-## Local MLflow server
-
-`scripts/mlflow-server.sh` starts a tracking server at
-<http://127.0.0.1:5001> (port 5001 because macOS AirPlay occupies 5000),
-backed by `mlflow.db` with artifacts under `mlartifacts/`. Point runs at it
-with:
-
-```bash
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5001
-qset-compile circuits/bell.py
-```
+Runs are logged to the hosted MLflow server (see below); browse them in its
+web UI.
 
 ## Send local runs to the hosted MLflow server
 
@@ -72,15 +61,28 @@ qset-compile circuits/ghz.py
 set in your shell or in CI takes precedence over `.env`, so this never
 interferes with the GitHub-secret values used in Actions.
 
-## Use a remote MLflow server in CI
+## Configure CI to log to the hosted MLflow server
 
-Set these repository secrets and the workflow logs there instead of the
-local file store:
+The workflow reads its MLflow connection from **repository secrets**. Set
+them once (Settings → Secrets and variables → Actions, or with `gh`):
 
-- `MLFLOW_TRACKING_URI` (e.g. `https://mlflow.example.com`)
-- `MLFLOW_TRACKING_USERNAME` / `MLFLOW_TRACKING_PASSWORD` (if required)
+```bash
+gh secret set MLFLOW_TRACKING_URI       # e.g. https://mlflow.example.com
+gh secret set MLFLOW_TRACKING_USERNAME  # if the server needs basic auth
+gh secret set MLFLOW_TRACKING_PASSWORD  # if the server needs basic auth
+```
 
-## Inspect CI results without a server
+With these set, every run logs to the hosted server.
 
-Download the `mlruns` artifact from a workflow run, unzip it, and run
-`mlflow ui` in the directory containing `mlruns/`.
+> The secrets must live on **this repository's** Actions secrets — not a
+> GitHub Project board, repository *Variables*, or another repo — or the
+> workflow fails because it has no MLflow server to reach.
+
+## Run the workflow
+
+```bash
+gh workflow run "Quantum compilation CI"   # manual trigger (workflow_dispatch)
+gh run watch                               # follow the latest run
+```
+
+It also runs automatically on every push to `main` and on pull requests.

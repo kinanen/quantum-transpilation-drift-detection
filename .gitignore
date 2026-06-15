@@ -1,9 +1,6 @@
 __pycache__/
 *.egg-info/
 .venv/
-mlruns/
-mlartifacts/
-mlflow.db
 build/
 dist/
 
