@@ -182,7 +182,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     circuit = load_circuit(args.circuit_file)
-    circuit_name = circuit.name if circuit.name != "circuit" else args.circuit_file.stem
+    # QASM 2 files carry no name, so Qiskit auto-assigns "circuit-N"; fall back
+    # to the filename stem whenever the name is auto-generated.
+    circuit_name = (
+        circuit.name
+        if circuit.name and not circuit.name.startswith("circuit")
+        else args.circuit_file.stem
+    )
 
     mlflow.set_experiment(args.experiment)
     print(f"MLflow tracking URI: {mlflow.get_tracking_uri()}")

@@ -30,6 +30,12 @@ jobs:
 
       - name: Compile circuits against all backends
         run: |
-          for circuit in circuits/*.py; do
+          shopt -s nullglob
+          circuits=(circuits/*.py circuits/*.qasm)
+          if [ ${#circuits[@]} -eq 0 ]; then
+            echo "No circuit files (*.py or *.qasm) found in circuits/" >&2
+            exit 1
+          fi
+          for circuit in "${circuits[@]}"; do
             qset-compile "$circuit"
           done
