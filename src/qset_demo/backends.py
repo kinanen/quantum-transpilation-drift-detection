@@ -40,7 +40,7 @@ class DeviceSpec:
 # not in the file.
 DEVICES = {
     "Cepheus": DeviceSpec(kind="superconducting"),
-    "Garnet": DeviceSpec(kind="superconducting"),
+    "Emerald": DeviceSpec(kind="superconducting"),
     "Forte": DeviceSpec(kind="trapped_ion", num_qubits=36),
 }
 

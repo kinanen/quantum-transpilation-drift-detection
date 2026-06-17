@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 build/
 dist/
+.DS_Store
 
 # Local MLflow credentials (copy from .env.example); never commit real secrets
 .env

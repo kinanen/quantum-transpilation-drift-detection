@@ -11,7 +11,7 @@ compilation data in [MLflow](https://mlflow.org).
 2. `qset-compile` transpiles the circuit against backends built from real
    device calibration data in `hardware_specs/` (Braket-style JSON):
    - **Cepheus** — 107-qubit superconducting device (CZ-based)
-   - **Garnet** — 20-qubit IQM superconducting device (CZ, square lattice)
+   - **Emerald** — 54-qubit IQM superconducting device (CZ, square lattice)
    - **Forte** — 36-qubit IonQ trapped-ion device (all-to-all connectivity)
 
    The calibration data (T1/T2, gate and readout errors) is loaded into each
@@ -33,8 +33,8 @@ compilation data in [MLflow](https://mlflow.org).
 python -m venv .venv && source .venv/bin/activate
 pip install .
 
-qset-compile circuits/bell.py
-qset-compile circuits/ghz.py --backends Garnet Forte --opt-levels 1 3
+qset-compile circuits/bv12.qasm
+qset-compile circuits/ghz6.qasm --backends Emerald Forte --opt-levels 1 3
 ```
 
 Runs are logged to the hosted MLflow server (see below); browse them in its
@@ -54,7 +54,7 @@ cp .env.example .env
 hosted server:
 
 ```bash
-qset-compile circuits/ghz.py
+qset-compile circuits/ghz6.qasm
 ```
 
 `.env` is gitignored — never commit real credentials. Any variable already
