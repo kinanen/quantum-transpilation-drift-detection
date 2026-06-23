@@ -9,6 +9,10 @@ on:
 jobs:
   compile:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        qiskit: ["1.4.6", "2.4.2"]
     env:
       # Runs are logged to the hosted MLflow server. Set these repository
       # secrets (Settings -> Secrets and variables -> Actions).
@@ -26,7 +30,10 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install .
+        run: |
+          pip install .
+          # Override the pyproject pin so each matrix job runs one major version.
+          pip install "qiskit==${{ matrix.qiskit }}"
 
       - name: Compile circuits against all backends
         run: |

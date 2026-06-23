@@ -30,6 +30,11 @@ from qset_demo.backends import available_backends, get_backend
 
 DEFAULT_OPT_LEVELS = [0, 1, 2, 3]
 
+# Fixed transpiler seed so Sabre layout/routing is reproducible. Without it,
+# O2/O3 pick a random initial layout each run, producing spurious structural
+# drift even when nothing changed. Override with QSET_TRANSPILER_SEED.
+DEFAULT_TRANSPILER_SEED = 20240622
+
 
 def load_circuit(path: Path) -> QuantumCircuit:
     """Load a QuantumCircuit from a .py or .qasm file."""
@@ -134,8 +139,9 @@ def compile_and_log(
     """Transpile the circuit for one backend/level and record an MLflow run."""
     backend = get_backend(backend_name)
 
+    seed = int(os.environ.get("QSET_TRANSPILER_SEED", DEFAULT_TRANSPILER_SEED))
     pass_manager = generate_preset_pass_manager(
-        optimization_level=optimization_level, backend=backend
+        optimization_level=optimization_level, backend=backend, seed_transpiler=seed
     )
     start = time.perf_counter()
     transpiled = pass_manager.run(circuit)
@@ -179,6 +185,7 @@ def compile_and_log(
                 "backend_num_qubits": backend.num_qubits,
                 "basis_gates": ",".join(sorted(backend.operation_names)),
                 "optimization_level": optimization_level,
+                "transpiler_seed": seed,
                 "qiskit_version": qiskit.__version__,
             }
         )
