@@ -6,15 +6,20 @@ A "Qiskit file" is either:
   - an OpenQASM 2 file (.qasm).
 
 For every (backend, optimization level) pair the circuit is transpiled and
-one MLflow run is recorded with the compilation parameters, metrics
-(depth, gate counts, transpile time, ...) and the transpiled circuit as an
-artifact.
+one MLflow run is recorded with the compilation parameters (backend, basis
+gates, coupling-map id, transpiler + version, optimization level, seed,
+drift thresholds, CI linkage), metrics (depth, gate counts, transpile time,
+structural drift, ...) and artifacts: the source circuit, the transpiled
+circuit (OpenQASM 3), the backend target description, a metrics JSON and a
+gate-count plot.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
+import json
 import os
 import sys
 import tempfile
@@ -99,10 +104,10 @@ def drift_status(drift: float, warn: float, fail: float) -> str:
 
 def fetch_baseline_metrics(
     circuit_name: str, backend_name: str, optimization_level: int
-) -> dict | None:
-    """Count metrics of the most recent prior run for the same circuit,
-    backend, and optimization level — the structural-drift baseline. Returns
-    None when there is no comparable prior run (so drift defaults to 0).
+) -> tuple[dict, str] | None:
+    """Count metrics and run_id of the most recent prior run for the same
+    circuit, backend, and optimization level — the structural-drift baseline.
+    Returns None when there is no comparable prior run (so drift defaults to 0).
     """
     filter_string = (
         f"tags.circuit = '{circuit_name}' "
@@ -126,7 +131,136 @@ def fetch_baseline_metrics(
         if value is None or value != value:  # missing column or NaN
             return None
         baseline[key] = value
-    return baseline
+    return baseline, row["run_id"]
+
+
+def coupling_map_edges(backend) -> list:
+    """Sorted directed edge list of the backend's coupling map ([] if dense/None)."""
+    try:
+        cm = backend.coupling_map
+    except Exception:
+        return []
+    if cm is None:
+        return []
+    return sorted(tuple(e) for e in cm.get_edges())
+
+
+def coupling_map_id(edges: list) -> str:
+    """Short stable hash identifying a coupling map by its edge set."""
+    return hashlib.sha1(repr(edges).encode()).hexdigest()[:12]
+
+
+def target_description(backend) -> dict:
+    """Serialise a backend's transpiler Target: basis, coupling map and per-
+    qubit/per-gate calibration (T1/T2, gate and readout errors, durations)."""
+    target = backend.target
+    qprops = target.qubit_properties or []
+    qubits = []
+    for i in range(backend.num_qubits):
+        qp = qprops[i] if i < len(qprops) else None
+        qubits.append(
+            {"qubit": i, "t1": getattr(qp, "t1", None), "t2": getattr(qp, "t2", None)}
+        )
+    instructions = {}
+    for name in target.operation_names:
+        entries = []
+        for qargs, props in target[name].items():
+            entries.append(
+                {
+                    "qubits": list(qargs) if qargs is not None else None,
+                    "error": getattr(props, "error", None) if props else None,
+                    "duration": getattr(props, "duration", None) if props else None,
+                }
+            )
+        instructions[name] = entries
+    edges = coupling_map_edges(backend)
+    return {
+        "name": backend.name,
+        "num_qubits": backend.num_qubits,
+        "basis_gates": sorted(target.operation_names),
+        "coupling_map": [list(e) for e in edges],
+        "coupling_pairs": len({frozenset(e) for e in edges}),
+        "coupling_map_id": coupling_map_id(edges),
+        "qubits": qubits,
+        "instructions": instructions,
+    }
+
+
+def ci_run_url() -> str | None:
+    """URL of the GitHub Actions run that produced this MLflow run, if in CI."""
+    server = os.environ.get("GITHUB_SERVER_URL")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    if server and repo and run_id:
+        return f"{server}/{repo}/actions/runs/{run_id}"
+    return None
+
+
+def _make_gate_plot(run_name: str, transpiled: QuantumCircuit, out_path: Path) -> bool:
+    """Bar chart of the transpiled gate counts. Returns False if matplotlib
+    is unavailable (the run is still logged, just without the plot)."""
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except Exception:
+        return False
+    ops = transpiled.count_ops()
+    fig, ax = plt.subplots(figsize=(5, 3))
+    ax.bar(list(ops), list(ops.values()), color="#4063D8")
+    ax.set_title(run_name)
+    ax.set_xlabel("gate")
+    ax.set_ylabel("count")
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+    return True
+
+
+def _log_run_artifacts(
+    run_name: str,
+    source_file: str,
+    transpiled: QuantumCircuit,
+    backend,
+    metrics: dict,
+    status: str,
+    baseline_run_id: str | None,
+) -> None:
+    """Attach source + transpiled circuits, backend target, metrics JSON, plot."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+
+        source = Path(source_file)
+        if source.exists():
+            mlflow.log_artifact(str(source), artifact_path="source")
+
+        transpiled_path = tmp / f"{run_name}.qasm3"
+        transpiled_path.write_text(qasm3.dumps(transpiled))
+        mlflow.log_artifact(str(transpiled_path), artifact_path="transpiled")
+
+        target_path = tmp / f"{backend.name}-target.json"
+        target_path.write_text(json.dumps(target_description(backend), indent=2))
+        mlflow.log_artifact(str(target_path), artifact_path="backend")
+
+        metrics_path = tmp / f"{run_name}-metrics.json"
+        metrics_path.write_text(
+            json.dumps(
+                {
+                    "run_name": run_name,
+                    "drift_status": status,
+                    "baseline_run_id": baseline_run_id,
+                    "metrics": metrics,
+                },
+                indent=2,
+            )
+        )
+        mlflow.log_artifact(str(metrics_path), artifact_path="metrics")
+
+        plot_path = tmp / f"{run_name}-gates.png"
+        if _make_gate_plot(run_name, transpiled, plot_path):
+            mlflow.log_artifact(str(plot_path), artifact_path="plots")
 
 
 def compile_and_log(
@@ -161,10 +295,24 @@ def compile_and_log(
     # Score drift against the previous run for this circuit/backend/level
     # before opening the new run (so it isn't its own baseline).
     baseline = fetch_baseline_metrics(circuit_name, backend_name, optimization_level)
-    drift = structural_drift(structural, baseline) if baseline else 0.0
+    baseline_metrics, baseline_run_id = baseline if baseline else (None, None)
+    drift = structural_drift(structural, baseline_metrics) if baseline_metrics else 0.0
     warn = float(os.environ.get("QSET_DRIFT_WARN", DRIFT_WARN_DEFAULT))
     fail = float(os.environ.get("QSET_DRIFT_FAIL", DRIFT_FAIL_DEFAULT))
     status = drift_status(drift, warn, fail)
+
+    edges = coupling_map_edges(backend)
+
+    metrics = {
+        "structural_drift": round(drift, 4),
+        **structural,
+        "transpile_seconds": round(transpile_seconds, 4),
+        # pre-transpile (logical) circuit, to gauge compilation overhead
+        "source_depth": circuit.depth(),
+        "source_ops": circuit.size(),
+        "source_two_qubit_gates": two_qubit_gate_count(circuit),
+    }
+    gate_counts = {f"gate_count.{g}": c for g, c in transpiled.count_ops().items()}
 
     with mlflow.start_run(run_name=run_name):
         mlflow.set_tags(
@@ -174,7 +322,9 @@ def compile_and_log(
                 "git_sha": os.environ.get("GITHUB_SHA", "local"),
                 "git_ref": os.environ.get("GITHUB_REF_NAME", "local"),
                 "drift_status": status,
-                "drift_baseline": "none" if baseline is None else "previous_run",
+                "drift_baseline": "none" if baseline_metrics is None else "previous_run",
+                "drift_baseline_run_id": baseline_run_id or "none",
+                **({"ci_run_url": ci_run_url()} if ci_run_url() else {}),
             }
         )
         mlflow.log_params(
@@ -184,25 +334,24 @@ def compile_and_log(
                 "backend": backend_name,
                 "backend_num_qubits": backend.num_qubits,
                 "basis_gates": ",".join(sorted(backend.operation_names)),
+                "coupling_map_id": coupling_map_id(edges),
+                "coupling_pairs": len({frozenset(e) for e in edges}),
                 "optimization_level": optimization_level,
+                "transpiler": "qiskit",
+                "transpiler_version": qiskit.__version__,
                 "transpiler_seed": seed,
                 "qiskit_version": qiskit.__version__,
+                "drift_warn_threshold": warn,
+                "drift_fail_threshold": fail,
+                "github_run_id": os.environ.get("GITHUB_RUN_ID", "local"),
             }
         )
 
-        metrics = {
-            "structural_drift": round(drift, 4),
-            **structural,
-            "transpile_seconds": round(transpile_seconds, 4),
-        }
-        mlflow.log_metrics(metrics)
-        for gate, count in transpiled.count_ops().items():
-            mlflow.log_metric(f"gate_count.{gate}", count)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            qasm_path = Path(tmp) / f"{run_name}.qasm3"
-            qasm_path.write_text(qasm3.dumps(transpiled))
-            mlflow.log_artifact(str(qasm_path), artifact_path="transpiled")
+        mlflow.log_metrics({**metrics, **gate_counts})
+        _log_run_artifacts(
+            run_name, source_file, transpiled, backend,
+            {**metrics, **gate_counts}, status, baseline_run_id,
+        )
 
     return {
         "backend": backend_name,
