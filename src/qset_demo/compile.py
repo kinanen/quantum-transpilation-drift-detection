@@ -434,6 +434,36 @@ def write_github_summary(circuit_name: str, results: list[dict]) -> None:
         f.write("\n".join(lines) + "\n\n")
 
 
+def emit_drift_annotations(circuit_name: str, results: list[dict]) -> bool:
+    """Emit GitHub Actions annotations for warn/fail drift.
+
+    Returns True if any run is ``fail``. ``warn`` runs render as a yellow
+    annotation, ``fail`` runs as a red one. Annotations are only printed under
+    GitHub Actions (``GITHUB_ACTIONS=true``); elsewhere this is a no-op that
+    still reports whether a fail occurred.
+    """
+    in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
+    warn = os.environ.get("QSET_DRIFT_WARN", DRIFT_WARN_DEFAULT)
+    fail = os.environ.get("QSET_DRIFT_FAIL", DRIFT_FAIL_DEFAULT)
+    has_fail = False
+    for r in results:
+        status = r["drift_status"]
+        if status == "pass":
+            continue
+        if status == "fail":
+            has_fail = True
+        if not in_actions:
+            continue
+        level = "error" if status == "fail" else "warning"
+        location = f"{circuit_name} / {r['backend']} / O{r['opt_level']}"
+        print(
+            f"::{level} title=Structural drift ({status})::{location}: "
+            f"structural drift {r['structural_drift']} "
+            f"(warn={warn}, fail={fail})"
+        )
+    return has_fail
+
+
 def load_dotenv(path: Path = Path(".env")) -> None:
     """Load KEY=VALUE pairs from a .env file into os.environ.
 
@@ -506,7 +536,11 @@ def main(argv: list[str] | None = None) -> int:
             results.append(result)
 
     write_github_summary(circuit_name, results)
+    has_fail = emit_drift_annotations(circuit_name, results)
     print(f"Logged {len(results)} runs to experiment '{args.experiment}'")
+    if has_fail and os.environ.get("QSET_FAIL_ON_DRIFT", "").lower() in ("1", "true", "yes"):
+        print("::error::structural drift exceeded the fail threshold")
+        return 1
     return 0
 
 
