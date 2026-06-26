@@ -40,6 +40,11 @@ DEFAULT_OPT_LEVELS = [0, 1, 2, 3]
 # drift even when nothing changed. Override with QSET_TRANSPILER_SEED.
 DEFAULT_TRANSPILER_SEED = 20240622
 
+# Which transpiler the pipeline uses: "qiskit" (built-in preset pass managers)
+# or "iqm" (qiskit-on-iqm transpile_to_IQM, needs iqm-client[qiskit]).
+# Override with QSET_TRANSPILER.
+DEFAULT_TRANSPILER = "qiskit"
+
 
 def load_circuit(path: Path) -> QuantumCircuit:
     """Load a QuantumCircuit from a .py or .qasm file."""
@@ -65,6 +70,58 @@ def load_circuit(path: Path) -> QuantumCircuit:
 
 def two_qubit_gate_count(circuit: QuantumCircuit) -> int:
     return sum(1 for inst in circuit.data if inst.operation.num_qubits == 2)
+
+
+def qubits_used(transpiled: QuantumCircuit) -> int:
+    """Number of physical qubits the transpiled circuit actually touches.
+
+    Prefers the final index layout (Qiskit preset pass managers); falls back to
+    counting active qubits (e.g. IQM-transpiled circuits without a layout).
+    """
+    layout = getattr(transpiled, "layout", None)
+    if layout is not None:
+        try:
+            return len(layout.final_index_layout())
+        except Exception:
+            pass
+    used = set()
+    for inst in transpiled.data:
+        if inst.operation.name in ("barrier", "delay"):
+            continue
+        for q in inst.qubits:
+            used.add(transpiled.find_bit(q).index)
+    return len(used)
+
+
+def transpile_circuit(circuit, backend_name, optimization_level, seed):
+    """Transpile with the selected transpiler.
+
+    Returns ``(transpiled, backend, transpiler_name, transpiler_version)``.
+    ``QSET_TRANSPILER=iqm`` uses qiskit-on-iqm's ``transpile_to_IQM`` on an IQM
+    backend built for the named device; otherwise Qiskit's preset pass managers.
+    """
+    transpiler = os.environ.get("QSET_TRANSPILER", DEFAULT_TRANSPILER)
+    if transpiler == "iqm":
+        from importlib.metadata import version
+
+        from iqm.qiskit_iqm import transpile_to_IQM
+
+        from qset_demo.iqm_emerald import build_iqm_backend
+
+        backend = build_iqm_backend(backend_name)
+        transpiled = transpile_to_IQM(
+            circuit,
+            backend=backend,
+            optimization_level=optimization_level,
+            seed_transpiler=seed,
+        )
+        return transpiled, backend, "iqm-client", version("iqm-client")
+
+    backend = get_backend(backend_name)
+    pass_manager = generate_preset_pass_manager(
+        optimization_level=optimization_level, backend=backend, seed_transpiler=seed
+    )
+    return pass_manager.run(circuit), backend, "qiskit", qiskit.__version__
 
 
 # Count-valued structural features F(c, t, r) = <depth, gates, twoQ, layout>
@@ -271,14 +328,11 @@ def compile_and_log(
     optimization_level: int,
 ) -> dict:
     """Transpile the circuit for one backend/level and record an MLflow run."""
-    backend = get_backend(backend_name)
-
     seed = int(os.environ.get("QSET_TRANSPILER_SEED", DEFAULT_TRANSPILER_SEED))
-    pass_manager = generate_preset_pass_manager(
-        optimization_level=optimization_level, backend=backend, seed_transpiler=seed
-    )
     start = time.perf_counter()
-    transpiled = pass_manager.run(circuit)
+    transpiled, backend, transpiler_name, transpiler_version = transpile_circuit(
+        circuit, backend_name, optimization_level, seed
+    )
     transpile_seconds = time.perf_counter() - start
 
     run_name = f"{circuit_name}-{backend_name}-O{optimization_level}"
@@ -287,9 +341,7 @@ def compile_and_log(
         "depth": transpiled.depth(),
         "total_ops": transpiled.size(),
         "two_qubit_gates": two_qubit_gate_count(transpiled),
-        "qubits_used": len(transpiled.layout.final_index_layout())
-        if transpiled.layout
-        else transpiled.num_qubits,
+        "qubits_used": qubits_used(transpiled),
     }
 
     # Score drift against the previous run for this circuit/backend/level
@@ -337,8 +389,8 @@ def compile_and_log(
                 "coupling_map_id": coupling_map_id(edges),
                 "coupling_pairs": len({frozenset(e) for e in edges}),
                 "optimization_level": optimization_level,
-                "transpiler": "qiskit",
-                "transpiler_version": qiskit.__version__,
+                "transpiler": transpiler_name,
+                "transpiler_version": transpiler_version,
                 "transpiler_seed": seed,
                 "qiskit_version": qiskit.__version__,
                 "drift_warn_threshold": warn,
