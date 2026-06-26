@@ -1,4 +1,4 @@
-# Q-SET Demo — Qiskit compilation tracking in CI
+# Quantum Transpilation Drift Detection — Qiskit compilation tracking in CI
 
 Showcase project: a GitHub Actions workflow that takes Qiskit circuit files,
 compiles (transpiles) them against several quantum backends, and stores the
